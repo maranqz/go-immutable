@@ -17,7 +17,7 @@ type linterSuite struct {
 
 func (suite *linterSuite) TestContextLinter() {
 	analysistest.Run(suite.T(), TestdataDir(),
-		ImmutableAnalyzer, "testlintdata/todo")
+		ImmutableAnalyzer, "testlintdata/scalar")
 }
 
 func TestLinterSuite(t *testing.T) {

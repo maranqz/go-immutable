@@ -38,6 +38,7 @@ To do so:
 2. From the projects root directory, run `make build`
 3. Copy the `golangci-lint` executable that was created to your path, project, or other location
 
+
 ### Configure Your Project for Linting
 
 If you already have a linter plugin available, you can follow these steps to define its usage in a projects `.golangci.yml` file.
@@ -100,3 +101,18 @@ go build -buildmode=plugin plugin/example.go
 This will create a plugin `*.so` file that can be copied into your project or another well known location for usage in `golangci-lint`.
 
 [^1]: Alternately, you can use the `-o /path/to/location/example.so` output flag to have it put it there for you.
+
+
+# Linter as Project
+
+## Implementation
+
+1. Mark variable as readonly by variable suffix/prefix, configuration or annotation/comment.
+2. Save all *ast.Assign, which see on the source variable.
+3. Check *ast.Assign on changes
+
+To identify variable We use *ast.Object. 
+
+## Tips
+
+1. https://astexplorer.net/ to see online ast tree
