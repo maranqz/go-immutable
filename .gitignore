@@ -1,0 +1,10 @@
+/.idea/
+/.vscode/
+/dist/
+.DS_Store
+/*.pprof
+/*.txt
+/golangci-lint
+/golangci-lint.exe
+/example.so
+/vendor
