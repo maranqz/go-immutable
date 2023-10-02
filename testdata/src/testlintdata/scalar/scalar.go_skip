@@ -1,26 +1,5 @@
 package function
 
-
-func Int() {
-	readonlyRO := 1
-
-	readonlyRO = 2 // want "try to change readonlyRO"
-
-	tmp := readonlyRO
-
-	tmp++ // want "try to change readonlyRO"
-	tmp-- // want "try to change readonlyRO"
-
-	tmp += 1 // want "try to change readonlyRO"
-	tmp -= 1 // want "try to change readonlyRO"
-
-	tmp |= 1  // want "try to change readonlyRO"
-	tmp ^= 1  // want "try to change readonlyRO"
-	tmp &= 1  // want "try to change readonlyRO"
-	tmp <<= 1 // want "try to change readonlyRO"
-	tmp >>= 1 // want "try to change readonlyRO"
-}
-
 func String() {
 	readonlyRO := "1"
 

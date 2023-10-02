@@ -17,4 +17,32 @@ func Bool() {
 	tmpPtr2 := tmpPtr
 	// TODO tmpPtr2 should show readonlyRO
 	*tmpPtr2 = tmp && readonlyRO // want "try to change tmpPtr2"
+
+	value := *tmpPtr2
+	value = false
+	_ = value
+}
+
+func Int() {
+	readonlyRO := 1
+
+	readonlyRO = 2 // want "try to change readonlyRO"
+
+	tmp := readonlyRO
+
+	tmp++
+
+	tmpPtr := &readonlyRO
+
+	*tmpPtr++ // want "try to change tmpPtr"
+	*tmpPtr-- // want "try to change tmpPtr"
+
+	*tmpPtr += 1 // want "try to change tmpPtr"
+	*tmpPtr -= 1 // want "try to change tmpPtr"
+
+	*tmpPtr |= 1  // want "try to change tmpPtr"
+	*tmpPtr ^= 1  // want "try to change tmpPtr"
+	*tmpPtr &= 1  // want "try to change tmpPtr"
+	*tmpPtr <<= 1 // want "try to change tmpPtr"
+	*tmpPtr >>= 1 // want "try to change tmpPtr"
 }

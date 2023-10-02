@@ -8,7 +8,6 @@ import (
 
 	"golang.org/x/tools/go/analysis"
 	"golang.org/x/tools/go/analysis/passes/inspect"
-	"golang.org/x/tools/go/ast/inspector"
 )
 
 var ImmutableAnalyzer = &analysis.Analyzer{
@@ -21,89 +20,139 @@ var ImmutableAnalyzer = &analysis.Analyzer{
 func run(pass *analysis.Pass) (interface{}, error) {
 	for _, file := range pass.Files {
 
-		inspect := pass.ResultOf[inspect.Analyzer].(*inspector.Inspector)
+		v := &visiter{readonlyObjects: map[*ast.Object]*object{}}
+		v.walk(file)
 
-		// the inspector has a `filter` feature that enables type-based filtering
-		// The anonymous function will be only called for the ast nodes whose type
-		// matches an element in the filter
-		nodeFilter := []ast.Node{
-			(*ast.AssignStmt)(nil),
+		for _, obj := range v.tryMutate {
+			pass.Report(analysis.Diagnostic{
+				Pos:     obj.ident.Pos(),
+				Message: fmt.Sprintf("try to change %s", obj.ident.Name),
+			})
 		}
-
-		// TODO combine in struct, add first initialization, name
-		readOnlyObjs := map[*ast.Object]struct{}{}
-		readOnlyPtrObjs := map[*ast.Object]struct{}{}
-
-		// TODO migrate to ast.Walk
-		inspect.Preorder(nodeFilter, func(n ast.Node) {
-			assign, ok := n.(*ast.AssignStmt)
-			if !ok {
-				return
-			}
-
-			// TODO multiple assign
-			// read Lhs
-			isPtrAssign := false
-			lId, ok := assign.Lhs[0].(*ast.Ident)
-			if !ok {
-				start, ok := assign.Lhs[0].(*ast.StarExpr)
-				isPtrAssign = ok
-				if ok {
-					lId = start.X.(*ast.Ident)
-				}
-			}
-
-			if _, isRO := readOnlyObjs[lId.Obj]; isRO {
-				if isPtrAssign {
-					_, isPtr := readOnlyPtrObjs[lId.Obj]
-					if !isPtr {
-						return
-					}
-				}
-
-				pass.Report(analysis.Diagnostic{
-					Pos: lId.Pos(),
-					// TODO use descriptive message
-					Message: fmt.Sprintf("try to change %s", lId.Name),
-				})
-			}
-
-			// TODO replace on more useful configuration
-			if strings.HasSuffix(lId.Name, "RO") {
-				readOnlyObjs[lId.Obj] = struct{}{}
-			}
-
-			// read Rhs
-			rhs := assign.Rhs[0]
-			if rId, ok := rhs.(*ast.Ident); ok {
-				if _, isRO := readOnlyPtrObjs[rId.Obj]; isRO {
-					readOnlyObjs[lId.Obj] = struct{}{}
-					readOnlyPtrObjs[lId.Obj] = struct{}{}
-				}
-
-				return
-			}
-
-			if rId, ok := rhs.(*ast.UnaryExpr); ok && rId.Op == token.AND {
-				rEl, ok := rId.X.(*ast.Ident)
-				if ok {
-					if _, isRO := readOnlyObjs[rEl.Obj]; isRO {
-						readOnlyObjs[lId.Obj] = struct{}{}
-						readOnlyPtrObjs[lId.Obj] = struct{}{}
-					}
-				}
-			}
-
-			return
-		})
-
-		ast.Inspect(file, func(n ast.Node) bool {
-			// TODO
-			// https://github.com/sourcegraph/go-template-lint/tree/master
-
-			return true
-		})
 	}
 
 	return nil, nil
+}
+
+type visiter struct {
+	readonlyObjects map[*ast.Object]*object
+	tryMutate       []*object
+}
+
+type object struct {
+	ident     *ast.Ident
+	root      *ast.Object
+	isPointer bool
+}
+
+func (v *visiter) walk(n ast.Node) {
+	if n != nil {
+		ast.Walk(v, n)
+	}
+}
+
+func (v *visiter) Visit(n ast.Node) ast.Visitor {
+	inc, ok := n.(*ast.IncDecStmt)
+	if ok {
+		l, ok := inc.X.(*ast.StarExpr)
+		if ok {
+			n = l.X
+		}
+
+		lId, ok := inc.X.(*ast.Ident)
+		if !ok {
+			return v
+		}
+
+		if v.isReadOnly(lId.Obj) {
+			ro := v.getReadOnly(lId.Obj)
+
+			v.tryMutate = append(v.tryMutate, &object{
+				ident:     lId,
+				root:      ro.root,
+				isPointer: ro.isPointer,
+			})
+		}
+
+		return v
+	}
+
+	assign, ok := n.(*ast.AssignStmt)
+	if !ok {
+		return v
+	}
+
+	// TODO multiple assign
+	// read Lhs
+	isPtrAssign := false
+	lId, ok := assign.Lhs[0].(*ast.Ident)
+	if !ok {
+		start, ok := assign.Lhs[0].(*ast.StarExpr)
+		isPtrAssign = ok
+		if ok {
+			lId = start.X.(*ast.Ident)
+		}
+	}
+
+	if v.isReadOnly(lId.Obj) {
+		ro := v.getReadOnly(lId.Obj)
+		if isPtrAssign {
+			if !ro.isPointer {
+				return v
+			}
+		}
+
+		v.tryMutate = append(v.tryMutate, &object{
+			ident:     lId,
+			root:      ro.root,
+			isPointer: ro.isPointer,
+		})
+	}
+
+	// TODO replace on more useful configuration
+	if strings.HasSuffix(lId.Name, "RO") {
+		v.readonlyObjects[lId.Obj] = &object{
+			ident: lId,
+		}
+	}
+
+	// read Rhs
+	rhs := assign.Rhs[0]
+	if rId, ok := rhs.(*ast.Ident); ok {
+		if v.isReadOnly(rId.Obj) &&
+			v.getReadOnly(rId.Obj).isPointer {
+			v.readonlyObjects[lId.Obj] = &object{
+				ident:     lId,
+				root:      rId.Obj,
+				isPointer: true,
+			}
+		}
+
+		return v
+	}
+
+	if rId, ok := rhs.(*ast.UnaryExpr); ok && rId.Op == token.AND {
+		rEl, ok := rId.X.(*ast.Ident)
+		if ok {
+			if v.isReadOnly(rEl.Obj) {
+				v.readonlyObjects[lId.Obj] = &object{
+					ident:     lId,
+					root:      rEl.Obj,
+					isPointer: true,
+				}
+			}
+		}
+	}
+
+	return v
+}
+
+func (v *visiter) isReadOnly(o *ast.Object) bool {
+	_, ok := v.readonlyObjects[o]
+
+	return ok
+}
+
+func (v *visiter) getReadOnly(o *ast.Object) *object {
+	return v.readonlyObjects[o]
 }

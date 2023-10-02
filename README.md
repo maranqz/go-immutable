@@ -115,4 +115,4 @@ To identify variable We use *ast.Object.
 
 ## Tips
 
-1. https://astexplorer.net/ to see online ast tree
+1. https://astexplorer.net/ or https://yuroyoro.github.io/goast-viewer/ to see online ast tree
