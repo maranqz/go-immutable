@@ -1,6 +1,6 @@
 package external
 
-import strct "github.com/maranqz/go-immutable/testdata/src/testlintdata/struct"
+import strct "github.com/maranqz/go-immutable/testdata/src/struct"
 
 func changeValue() {
 	readonlyStruct := strct.ExtReadonlyStruct{}
@@ -12,7 +12,7 @@ func changeValue() {
 
 func changeReadonlyValue(in strct.ExtReadonlyStruct) {
 	// TODO target message showing which value was attempted to change
-	in.Value++ // want "try to change readonly variable from testdata/src/testlintdata/struct/external_struct.go:4:5"
+	in.Value++ // want "try to change readonly variable from testdata/src/struct/external_struct.go:4:5"
 
 	cp := in.Value
 	cp++

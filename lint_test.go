@@ -7,21 +7,32 @@ import (
 	"runtime"
 	"testing"
 
-	"github.com/stretchr/testify/suite"
 	"golang.org/x/tools/go/analysis/analysistest"
 )
 
-type linterSuite struct {
-	suite.Suite
-}
-
-func (suite *linterSuite) TestContextLinter() {
-	analysistest.Run(suite.T(), TestdataDir(),
-		ImmutableAnalyzer, "testlintdata/scalar")
-}
-
 func TestLinterSuite(t *testing.T) {
-	suite.Run(t, new(linterSuite))
+	t.Parallel()
+
+	testdata := analysistest.TestData()
+
+	tests := []struct {
+		pkg string
+	}{
+		{pkg: "scalar"},
+		{pkg: "global"},
+	}
+	for _, tt := range tests {
+		tt := tt
+		t.Run(tt.pkg, func(t *testing.T) {
+			t.Parallel()
+
+			dir := filepath.Join(testdata, "src", tt.pkg)
+
+			analysistest.Run(t, TestdataDir(),
+				ImmutableAnalyzer, dir)
+		})
+	}
+
 }
 
 func TestdataDir() string {

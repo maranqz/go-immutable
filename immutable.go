@@ -54,12 +54,13 @@ func (v *visiter) walk(n ast.Node) {
 func (v *visiter) Visit(n ast.Node) ast.Visitor {
 	inc, ok := n.(*ast.IncDecStmt)
 	if ok {
-		l, ok := inc.X.(*ast.StarExpr)
+		x := inc.X
+		l, ok := x.(*ast.StarExpr)
 		if ok {
-			n = l.X
+			x = l.X
 		}
 
-		lId, ok := inc.X.(*ast.Ident)
+		lId, ok := x.(*ast.Ident)
 		if !ok {
 			return v
 		}

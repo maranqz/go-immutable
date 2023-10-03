@@ -1,6 +1,6 @@
 # [WIP] Linter finds attempts to change read-only values
 
-[tests](testdata/src/testlintdata)
+[tests](testdata/src)
 
 #### go
 https://github.com/romshark/Go-1-2-Proposal---Immutability
@@ -116,3 +116,5 @@ To identify variable We use *ast.Object.
 ## Tips
 
 1. https://astexplorer.net/ or https://yuroyoro.github.io/goast-viewer/ to see online ast tree
+2. to work with across package
+   4. https://stackoverflow.com/questions/32532335/usage-of-go-parser-across-packages
