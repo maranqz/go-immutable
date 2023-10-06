@@ -1,7 +1,7 @@
-package main
+package global
 
-import alias "global/nested"
+import "global/nested"
 
-func main() {
-	alias.GlobalRO++ // want "try to change GlobalRO"
-}
+// TODO replace on var ()
+var GlobalRO = nested.GlobalRO
+var Global = &nested.GlobalRO

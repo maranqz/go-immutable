@@ -7,8 +7,36 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/dave/dst/decorator"
 	"golang.org/x/tools/go/analysis/analysistest"
+	"golang.org/x/tools/go/packages"
 )
+
+func check(err error) {
+	if err != nil {
+		panic(err)
+	}
+}
+
+// TODO remove
+func TestTryDST(t *testing.T) {
+	pp, err := decorator.Load(&packages.Config{
+		Mode:       packages.LoadAllSyntax,
+		Context:    nil,
+		Logf:       nil,
+		Dir:        "/Users/iasergunin/files/projects/trash/go-immutable/testdata/src/global",
+		Env:        nil,
+		BuildFlags: nil,
+		Fset:       nil,
+		ParseFile:  nil,
+		Tests:      false,
+		Overlay:    nil,
+	}, "./...")
+	check(err)
+
+	_ = pp
+
+}
 
 func TestLinterSuite(t *testing.T) {
 	t.Parallel()
@@ -19,7 +47,7 @@ func TestLinterSuite(t *testing.T) {
 		pkg string
 	}{
 		{pkg: "scalar"},
-		{pkg: "global"},
+		{pkg: "global/..."},
 	}
 	for _, tt := range tests {
 		tt := tt
