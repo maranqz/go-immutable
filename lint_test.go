@@ -12,19 +12,23 @@ import (
 	"golang.org/x/tools/go/packages"
 )
 
+// TODO remove.
 func check(err error) {
 	if err != nil {
 		panic(err)
 	}
 }
 
-// TODO remove
+// TODO remove.
 func TestTryDST(t *testing.T) {
+	t.Parallel()
+
 	pp, err := decorator.Load(&packages.Config{
+		//nolint:staticcheck
 		Mode:       packages.LoadAllSyntax,
 		Context:    nil,
 		Logf:       nil,
-		Dir:        "/Users/iasergunin/files/projects/trash/go-immutable/testdata/src/global",
+		Dir:        "local_path",
 		Env:        nil,
 		BuildFlags: nil,
 		Fset:       nil,
@@ -35,7 +39,6 @@ func TestTryDST(t *testing.T) {
 	check(err)
 
 	_ = pp
-
 }
 
 func TestLinterSuite(t *testing.T) {
@@ -48,6 +51,7 @@ func TestLinterSuite(t *testing.T) {
 	}{
 		{pkg: "scalar"},
 		{pkg: "global/..."},
+		{pkg: "struct/..."},
 	}
 	for _, tt := range tests {
 		tt := tt
@@ -60,7 +64,6 @@ func TestLinterSuite(t *testing.T) {
 				ImmutableAnalyzer, dir)
 		})
 	}
-
 }
 
 func TestdataDir() string {

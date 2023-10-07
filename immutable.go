@@ -11,6 +11,7 @@ import (
 	"golang.org/x/tools/go/analysis/passes/inspect"
 )
 
+//nolint:gochecknoglobals // linter configuration for Analyzer
 var ImmutableAnalyzer = &analysis.Analyzer{
 	Name:     "immutable",
 	Doc:      "finds attempts to change read-only values",
@@ -18,6 +19,7 @@ var ImmutableAnalyzer = &analysis.Analyzer{
 	Requires: []*analysis.Analyzer{inspect.Analyzer},
 }
 
+//nolint:gochecknoglobals // use to store data from all packages
 var analyse = globalAnalyse{
 	readonlyObjects: map[types.Object]*object{},
 }
@@ -41,6 +43,7 @@ func run(pass *analysis.Pass) (interface{}, error) {
 		}
 	}
 
+	//nolint:nilnil
 	return nil, nil
 }
 
@@ -62,20 +65,20 @@ type object struct {
 	isPointer bool
 }
 
+func (o *object) isPtr() bool {
+	return o != nil && o.isPointer
+}
+
 func (v *visiter) ObjUnar(ident *ast.Ident) *object {
 	obj := v.pass.TypesInfo.ObjectOf(ident)
-	p := v.getReadOnly(obj)
+	parent := v.getReadOnly(obj)
 
-	if p.root != nil {
-		p = v.getReadOnly(p.root)
+	var parentIdent *ast.Ident
+	if parent != nil {
+		parentIdent = parent.ident
 	}
 
-	return &object{
-		ident:     ident,
-		obj:       obj,
-		root:      p.obj,
-		isPointer: p.isPointer,
-	}
+	return v.obj(ident, parentIdent, false)
 }
 
 func (v *visiter) Obj(ident, pIdent *ast.Ident) *object {
@@ -87,12 +90,14 @@ func (v *visiter) ObjPtr(ident, pIdent *ast.Ident) *object {
 }
 
 func (v *visiter) obj(ident, pIdent *ast.Ident, isPtr bool) *object {
-	pObj := v.pass.TypesInfo.ObjectOf(pIdent)
-	p := v.getReadOnly(pObj)
-	root := p
+	parentObj := v.pass.TypesInfo.ObjectOf(pIdent)
+	parent := v.getReadOnly(parentObj)
+	rootObj := parentObj
 
-	if root.root != nil {
-		root = v.getReadOnly(root.root)
+	if parent != nil &&
+		parent.root != nil &&
+		v.isReadOnly(parent.root) {
+		rootObj = v.getReadOnly(parent.root).obj
 	}
 
 	obj := v.pass.TypesInfo.ObjectOf(ident)
@@ -100,9 +105,9 @@ func (v *visiter) obj(ident, pIdent *ast.Ident, isPtr bool) *object {
 	return &object{
 		ident:     ident,
 		obj:       obj,
-		parent:    p.obj,
-		root:      root.obj,
-		isPointer: isPtr || p.isPointer,
+		parent:    parentObj,
+		root:      rootObj,
+		isPointer: isPtr || parent.isPtr(),
 	}
 }
 
@@ -112,101 +117,171 @@ func (v *visiter) walk(n ast.Node) {
 	}
 }
 
-func (v *visiter) Visit(n ast.Node) ast.Visitor {
-	inc, ok := n.(*ast.IncDecStmt)
+//nolint:nestif,funlen,gocognit,cyclop // FIXME
+func (v *visiter) Visit(node ast.Node) ast.Visitor {
+	// Mark struct
+	typeSpec, ok := node.(*ast.TypeSpec)
 	if ok {
-		x := inc.X
-		l, ok := x.(*ast.StarExpr)
+		v.markROByName(typeSpec.Name)
+
+		return v
+	}
+
+	inc, ok := node.(*ast.IncDecStmt)
+	if ok {
+		expr := inc.X
+
+		ptr, ok := expr.(*ast.StarExpr)
 		if ok {
-			x = l.X
+			expr = ptr.X
 		}
 
-		sX, ok := x.(*ast.SelectorExpr)
+		selectorExpr, ok := expr.(*ast.SelectorExpr)
 		if ok {
-			x = sX.Sel
+			if ident, structNamed, ok := v.getStructNamed(selectorExpr); ok {
+				obj := structNamed.Obj()
+				if v.isReadOnly(obj) {
+					ro := v.getReadOnly(obj)
+					v.tryMutate = append(v.tryMutate, v.Obj(ident, ro.ident))
+				}
+
+				return v
+			}
+
+			expr = selectorExpr.Sel
 		}
 
-		lId, ok := x.(*ast.Ident)
+		lIdent, ok := expr.(*ast.Ident)
 		if !ok {
 			return v
 		}
 
-		lObj := v.pass.TypesInfo.ObjectOf(lId)
+		lObj := v.pass.TypesInfo.ObjectOf(lIdent)
 		if v.isReadOnly(lObj) {
-			v.tryMutate = append(v.tryMutate, v.ObjUnar(lId))
+			v.tryMutate = append(v.tryMutate, v.ObjUnar(lIdent))
 		}
 
 		return v
 	}
 
-	valueSpec, ok := n.(*ast.ValueSpec)
+	valueSpec, ok := node.(*ast.ValueSpec)
 	if ok {
 		// TODO multiple assign
 		if len(valueSpec.Names) == 0 {
 			return v
 		}
 
-		lId := valueSpec.Names[0]
-		lObj := v.pass.TypesInfo.ObjectOf(lId)
-		v.markROByName(lId)
+		lIdent := valueSpec.Names[0]
+		lObj := v.pass.TypesInfo.ObjectOf(lIdent)
+		v.markROByName(lIdent)
 
-		if rId, ok := v.isPtrRight(valueSpec.Values[0]); ok {
-			rObj := v.pass.TypesInfo.ObjectOf(rId)
+		if rIdent, ok := v.isPtrRight(valueSpec.Values[0]); ok {
+			rObj := v.pass.TypesInfo.ObjectOf(rIdent)
 			if v.isReadOnly(rObj) {
-				v.readonlyObjects[lObj] = v.ObjPtr(lId, rId)
+				v.readonlyObjects[lObj] = v.ObjPtr(lIdent, rIdent)
 			}
 		}
 
 		return v
 	}
 
-	assign, ok := n.(*ast.AssignStmt)
+	assign, ok := node.(*ast.AssignStmt)
 	if !ok {
 		return v
 	}
 
 	// TODO multiple assign
-	isPtrAssign := false
-	lId, ok := assign.Lhs[0].(*ast.Ident)
-	if !ok {
-		start, ok := assign.Lhs[0].(*ast.StarExpr)
-		if ok {
-			lId = start.X.(*ast.Ident)
-			isPtrAssign = ok
-		}
+	var (
+		lIdent *ast.Ident
+		lObj   types.Object
+	)
+
+	lhsFirst := assign.Lhs[0]
+
+	star, isPtrAssign := lhsFirst.(*ast.StarExpr)
+	if isPtrAssign {
+		lhsFirst = star.X
 	}
 
-	lObj := v.pass.TypesInfo.ObjectOf(lId)
-	if v.isReadOnly(lObj) {
-		ro := v.getReadOnly(lObj)
-		if isPtrAssign {
-			if !ro.isPointer {
-				return v
+	// struct
+	lSelectorExpr, ok := lhsFirst.(*ast.SelectorExpr)
+	if ok {
+		if ident, structNamed, ok := v.getStructNamed(lSelectorExpr); ok {
+			obj := structNamed.Obj()
+			if v.isReadOnly(obj) {
+				ro := v.getReadOnly(obj)
+				v.tryMutate = append(v.tryMutate, v.Obj(ident, ro.ident))
 			}
+
+			lIdent = ident
+			lObj = v.pass.TypesInfo.ObjectOf(lIdent)
+		} else {
+			v.unexpected(lSelectorExpr)
+
+			return v
+		}
+	} else {
+		// variable
+		lIdent, ok = lhsFirst.(*ast.Ident)
+		if !ok {
+			v.unexpected(lSelectorExpr)
+
+			return v
 		}
 
-		v.tryMutate = append(v.tryMutate, v.Obj(lId, ro.ident))
+		lObj = v.pass.TypesInfo.ObjectOf(lIdent)
+		if v.isReadOnly(lObj) {
+			ro := v.getReadOnly(lObj)
+			if isPtrAssign && !ro.isPtr() {
+				return v
+			}
+
+			v.tryMutate = append(v.tryMutate, v.Obj(lIdent, ro.ident))
+		}
 	}
 
 	// TODO replace on more useful configuration
-	v.markROByName(lId)
+	// Mark variable
+	v.markROByName(lIdent)
 
 	// read Rhs
 	rhs := assign.Rhs[0]
-	if rId, ok := rhs.(*ast.Ident); ok {
-		v.markROByRight(lId, rId)
+	if rIdent, ok := rhs.(*ast.Ident); ok {
+		v.markROByRight(lIdent, rIdent)
 
 		return v
 	}
 
-	if rId, ok := v.isPtrRight(rhs); ok {
-		rObj := v.pass.TypesInfo.ObjectOf(rId)
+	if rIdent, ok := v.isPtrRight(rhs); ok {
+		rObj := v.pass.TypesInfo.ObjectOf(rIdent)
 		if v.isReadOnly(rObj) {
-			v.readonlyObjects[lObj] = v.ObjPtr(lId, rId)
+			v.readonlyObjects[lObj] = v.ObjPtr(lIdent, rIdent)
 		}
 	}
 
 	return v
+}
+
+func (v *visiter) getStructNamed(selectorExpr *ast.SelectorExpr) (
+	*ast.Ident,
+	*types.Named,
+	bool,
+) {
+	ident, ok := selectorExpr.X.(*ast.Ident)
+	if ok {
+		obj := v.pass.TypesInfo.ObjectOf(ident)
+		objType := obj.Type()
+
+		if typePtr, ok := objType.(*types.Pointer); ok {
+			objType = typePtr.Elem()
+		}
+
+		if typeNamed, ok := objType.(*types.Named); ok {
+			return ident, typeNamed, true
+		}
+	}
+
+	return nil, nil, false
 }
 
 func (v *visiter) isReadOnly(o types.Object) bool {
@@ -222,34 +297,39 @@ func (v *visiter) getReadOnly(o types.Object) *object {
 func (v *visiter) markROByName(ident *ast.Ident) {
 	if strings.HasSuffix(ident.Name, "RO") {
 		obj := v.pass.TypesInfo.ObjectOf(ident)
-		v.readonlyObjects[obj] = &object{
-			ident: ident,
-			obj:   obj,
-		}
+		v.readonlyObjects[obj] = v.ObjUnar(ident)
 	}
 }
 
-func (v *visiter) markROByRight(lId, rId *ast.Ident) {
-	lObj := v.pass.TypesInfo.ObjectOf(lId)
-	rObj := v.pass.TypesInfo.ObjectOf(rId)
+func (v *visiter) markROByRight(lIdent, rIdent *ast.Ident) {
+	lObj := v.pass.TypesInfo.ObjectOf(lIdent)
+	rObj := v.pass.TypesInfo.ObjectOf(rIdent)
 
 	if v.isReadOnly(rObj) &&
-		v.getReadOnly(rObj).isPointer {
-		v.readonlyObjects[lObj] = v.Obj(lId, rId)
+		v.getReadOnly(rObj).isPtr() {
+		v.readonlyObjects[lObj] = v.Obj(lIdent, rIdent)
 	}
 }
 
 func (v *visiter) isPtrRight(n ast.Node) (*ast.Ident, bool) {
-	if rId, ok := n.(*ast.UnaryExpr); ok && rId.Op == token.AND {
-		x := rId.X
-		if sx, ok := x.(*ast.SelectorExpr); ok {
-			x = sx.Sel
+	if unaryExpr, ok := n.(*ast.UnaryExpr); ok &&
+		unaryExpr.Op == token.AND {
+		expr := unaryExpr.X
+		if selectorExpr, ok := expr.(*ast.SelectorExpr); ok {
+			expr = selectorExpr.Sel
 		}
 
-		rEl, ok := x.(*ast.Ident)
+		ident, ok := expr.(*ast.Ident)
 
-		return rEl, ok
+		return ident, ok
 	}
 
 	return nil, false
+}
+
+func (v *visiter) unexpected(n ast.Node) {
+	v.pass.Reportf(
+		n.Pos(),
+		`unexpected code, use "// nolint:immutable" and create issue about that with example`,
+	)
 }

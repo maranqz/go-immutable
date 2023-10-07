@@ -2,7 +2,7 @@ module github.com/maranqz/go-immutable
 
 // All versions here need to be the same as in golangci-lint/mod.go if present
 
-go 1.20
+go 1.21
 
 require (
 	github.com/stretchr/testify v1.8.4
