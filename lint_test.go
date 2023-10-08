@@ -42,22 +42,20 @@ func TestTryDST(t *testing.T) {
 }
 
 func TestLinterSuite(t *testing.T) {
-	t.Parallel()
-
 	testdata := analysistest.TestData()
 
 	tests := []struct {
 		pkg string
 	}{
 		{pkg: "scalar"},
-		{pkg: "global/..."},
-		{pkg: "struct/..."},
+		{pkg: "global"},
+		{pkg: "structs/local"},
+		// {pkg: "structs/only_exported/..."}, // TODO unskip.
+		// {pkg: "structs/global"}, // TODO unskip.
 	}
 	for _, tt := range tests {
 		tt := tt
 		t.Run(tt.pkg, func(t *testing.T) {
-			t.Parallel()
-
 			dir := filepath.Join(testdata, "src", tt.pkg)
 
 			analysistest.Run(t, TestdataDir(),

@@ -58,18 +58,54 @@ type visiter struct {
 }
 
 type object struct {
-	ident     *ast.Ident
-	obj       types.Object
-	parent    types.Object
-	root      types.Object
-	isPointer bool
+	ident         *ast.Ident
+	obj           types.Object
+	parent        types.Object
+	root          types.Object
+	rootVar       types.Object
+	isPointer     bool
+	isForExported bool
+}
+
+func (o *object) isRootVar() bool {
+	if o == nil {
+		return false
+	}
+
+	if o.rootVar == nil {
+		return true
+	}
+
+	return false
 }
 
 func (o *object) isPtr() bool {
 	return o != nil && o.isPointer
 }
 
+func (o *object) isStruct() bool {
+	if o == nil {
+		return false
+	}
+
+	return isStruct(o.obj)
+}
+
+func isStruct(obj types.Object) bool {
+	_, is := obj.(*types.TypeName)
+
+	return is
+}
+
+func (v *visiter) ObjUnarExported(ident *ast.Ident) *object {
+	return v.objUnar(ident, true)
+}
+
 func (v *visiter) ObjUnar(ident *ast.Ident) *object {
+	return v.objUnar(ident, false)
+}
+
+func (v *visiter) objUnar(ident *ast.Ident, isForExported bool) *object {
 	obj := v.pass.TypesInfo.ObjectOf(ident)
 	parent := v.getReadOnly(obj)
 
@@ -78,36 +114,53 @@ func (v *visiter) ObjUnar(ident *ast.Ident) *object {
 		parentIdent = parent.ident
 	}
 
-	return v.obj(ident, parentIdent, false)
+	return v.obj(ident, parentIdent, false, isForExported)
 }
 
 func (v *visiter) Obj(ident, pIdent *ast.Ident) *object {
-	return v.obj(ident, pIdent, false)
+	return v.obj(ident, pIdent, false, false)
 }
 
 func (v *visiter) ObjPtr(ident, pIdent *ast.Ident) *object {
-	return v.obj(ident, pIdent, true)
+	return v.obj(ident, pIdent, true, false)
 }
 
-func (v *visiter) obj(ident, pIdent *ast.Ident, isPtr bool) *object {
+func (v *visiter) obj(
+	ident, pIdent *ast.Ident,
+	isPtr bool,
+	isForExported bool,
+) *object {
 	parentObj := v.pass.TypesInfo.ObjectOf(pIdent)
 	parent := v.getReadOnly(parentObj)
+
 	rootObj := parentObj
 
-	if parent != nil &&
-		parent.root != nil &&
-		v.isReadOnly(parent.root) {
-		rootObj = v.getReadOnly(parent.root).obj
+	var rootVarObj types.Object
+
+	if !isStruct(parentObj) {
+		rootVarObj = parentObj
+	}
+
+	if parent != nil {
+		if parent.root != nil && v.isReadOnly(parent.root) {
+			rootObj = v.getReadOnly(parent.root).obj
+		}
+
+		if parent.rootVar != nil && v.isReadOnly(parent.rootVar) {
+			rootVarObj = v.getReadOnly(parent.rootVar).obj
+		}
 	}
 
 	obj := v.pass.TypesInfo.ObjectOf(ident)
 
 	return &object{
-		ident:     ident,
-		obj:       obj,
-		parent:    parentObj,
-		root:      rootObj,
-		isPointer: isPtr || parent.isPtr(),
+		ident:         ident,
+		obj:           obj,
+		parent:        parentObj,
+		root:          rootObj,
+		rootVar:       rootVarObj,
+		isPointer:     isPtr || parent.isPtr(),
+		isForExported: isForExported,
 	}
 }
 
@@ -117,9 +170,21 @@ func (v *visiter) walk(n ast.Node) {
 	}
 }
 
-//nolint:nestif,funlen,gocognit,cyclop // FIXME
+//nolint:nestif,funlen,gocognit,gocyclo,cyclop // FIXME
 func (v *visiter) Visit(node ast.Node) ast.Visitor {
-	// Mark struct
+	// TODO remove debug information
+	line := 0
+
+	if node != nil {
+		pos := v.pass.Fset.Position(node.Pos())
+		if pos.IsValid() {
+			line = pos.Line
+		}
+	}
+
+	_ = line
+
+	// Mark structs
 	typeSpec, ok := node.(*ast.TypeSpec)
 	if ok {
 		v.markROByName(typeSpec.Name)
@@ -136,6 +201,7 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 			expr = ptr.X
 		}
 
+		// struct.SomeField
 		selectorExpr, ok := expr.(*ast.SelectorExpr)
 		if ok {
 			if ident, structNamed, ok := v.getStructNamed(selectorExpr); ok {
@@ -164,6 +230,7 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 		return v
 	}
 
+	// global variable declaration in file
 	valueSpec, ok := node.(*ast.ValueSpec)
 	if ok {
 		// TODO multiple assign
@@ -198,12 +265,12 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 
 	lhsFirst := assign.Lhs[0]
 
-	star, isPtrAssign := lhsFirst.(*ast.StarExpr)
-	if isPtrAssign {
-		lhsFirst = star.X
+	starExpr, isPtrLeft := lhsFirst.(*ast.StarExpr)
+	if isPtrLeft {
+		lhsFirst = starExpr.X
 	}
 
-	// struct
+	// structs
 	lSelectorExpr, ok := lhsFirst.(*ast.SelectorExpr)
 	if ok {
 		if ident, structNamed, ok := v.getStructNamed(lSelectorExpr); ok {
@@ -214,7 +281,6 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 			}
 
 			lIdent = ident
-			lObj = v.pass.TypesInfo.ObjectOf(lIdent)
 		} else {
 			v.unexpected(lSelectorExpr)
 
@@ -232,11 +298,13 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 		lObj = v.pass.TypesInfo.ObjectOf(lIdent)
 		if v.isReadOnly(lObj) {
 			ro := v.getReadOnly(lObj)
-			if isPtrAssign && !ro.isPtr() {
-				return v
+			if !ro.isPtr() ||
+				ro.isPtr() && ro.isRootVar() ||
+				ro.isPtr() && isPtrLeft {
+				v.tryMutate = append(v.tryMutate, v.Obj(lIdent, ro.ident))
 			}
 
-			v.tryMutate = append(v.tryMutate, v.Obj(lIdent, ro.ident))
+			return v
 		}
 	}
 
@@ -245,18 +313,27 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 	v.markROByName(lIdent)
 
 	// read Rhs
-	rhs := assign.Rhs[0]
-	if rIdent, ok := rhs.(*ast.Ident); ok {
-		v.markROByRight(lIdent, rIdent)
+	rFirst := assign.Rhs[0]
+	isPtrRight := false
 
-		return v
+	if unaryExpr, ok := rFirst.(*ast.UnaryExpr); ok &&
+		unaryExpr.Op == token.AND {
+		rFirst = unaryExpr.X
+		isPtrRight = true
 	}
 
-	if rIdent, ok := v.isPtrRight(rhs); ok {
-		rObj := v.pass.TypesInfo.ObjectOf(rIdent)
-		if v.isReadOnly(rObj) {
-			v.readonlyObjects[lObj] = v.ObjPtr(lIdent, rIdent)
-		}
+	if selectorExpr, ok := rFirst.(*ast.SelectorExpr); ok {
+		rFirst = selectorExpr.Sel
+	}
+
+	if compositeList, ok := rFirst.(*ast.CompositeLit); ok {
+		rFirst = compositeList.Type
+	}
+
+	if rIdent, ok := rFirst.(*ast.Ident); ok {
+		v.markROByRight(lIdent, rIdent, isPtrRight)
+
+		return v
 	}
 
 	return v
@@ -299,15 +376,21 @@ func (v *visiter) markROByName(ident *ast.Ident) {
 		obj := v.pass.TypesInfo.ObjectOf(ident)
 		v.readonlyObjects[obj] = v.ObjUnar(ident)
 	}
+
+	if strings.HasSuffix(ident.Name, "ROExt") {
+		obj := v.pass.TypesInfo.ObjectOf(ident)
+		v.readonlyObjects[obj] = v.ObjUnarExported(ident)
+	}
 }
 
-func (v *visiter) markROByRight(lIdent, rIdent *ast.Ident) {
+func (v *visiter) markROByRight(lIdent, rIdent *ast.Ident, isPtr bool) {
 	lObj := v.pass.TypesInfo.ObjectOf(lIdent)
 	rObj := v.pass.TypesInfo.ObjectOf(rIdent)
 
+	ro := v.getReadOnly(rObj)
 	if v.isReadOnly(rObj) &&
-		v.getReadOnly(rObj).isPtr() {
-		v.readonlyObjects[lObj] = v.Obj(lIdent, rIdent)
+		(ro.isPtr() || ro.isStruct() || isPtr) {
+		v.readonlyObjects[lObj] = v.obj(lIdent, rIdent, isPtr, false)
 	}
 }
 

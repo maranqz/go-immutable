@@ -28,6 +28,7 @@ linters:
     - interfacer
     - godox # TODO activate
     - forbidigo # TODO activate
+    - paralleltest  # TODO activate
 
 run:
   skip-dirs:

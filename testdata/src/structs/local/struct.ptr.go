@@ -1,4 +1,4 @@
-package strct
+package local
 
 func changePtr() {
 	readonlyStruct := StructRO{}
