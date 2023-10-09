@@ -170,6 +170,8 @@ func (v *visiter) walk(n ast.Node) {
 	}
 }
 
+// TODO fix dependencies on the order of files within the package.
+//
 //nolint:nestif,funlen,gocognit,gocyclo,cyclop // FIXME
 func (v *visiter) Visit(node ast.Node) ast.Visitor {
 	// TODO remove debug information
@@ -238,15 +240,26 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 			return v
 		}
 
-		lIdent := valueSpec.Names[0]
-		lObj := v.pass.TypesInfo.ObjectOf(lIdent)
+		lFirst := valueSpec.Names[0]
+
+		lIdent := lFirst
 		v.markROByName(lIdent)
 
-		if rIdent, ok := v.isPtrRight(valueSpec.Values[0]); ok {
-			rObj := v.pass.TypesInfo.ObjectOf(rIdent)
-			if v.isReadOnly(rObj) {
-				v.readonlyObjects[lObj] = v.ObjPtr(lIdent, rIdent)
-			}
+		rFirst := valueSpec.Values[0]
+		isPtrRight := false
+
+		if unaryExpr, ok := rFirst.(*ast.UnaryExpr); ok &&
+			unaryExpr.Op == token.AND {
+			rFirst = unaryExpr.X
+			isPtrRight = true
+		}
+
+		if compositeList, ok := rFirst.(*ast.CompositeLit); ok {
+			rFirst = compositeList.Type
+		}
+
+		if rIdent, ok := rFirst.(*ast.Ident); ok {
+			v.markROByRight(lIdent, rIdent, isPtrRight)
 		}
 
 		return v
@@ -332,8 +345,6 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 
 	if rIdent, ok := rFirst.(*ast.Ident); ok {
 		v.markROByRight(lIdent, rIdent, isPtrRight)
-
-		return v
 	}
 
 	return v

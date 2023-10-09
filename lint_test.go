@@ -51,7 +51,7 @@ func TestLinterSuite(t *testing.T) {
 		{pkg: "global"},
 		{pkg: "structs/local"},
 		// {pkg: "structs/only_exported/..."}, // TODO unskip.
-		// {pkg: "structs/global"}, // TODO unskip.
+		{pkg: "structs/global"},
 	}
 	for _, tt := range tests {
 		tt := tt
