@@ -1,6 +1,6 @@
 # [WIP] Linter finds attempts to change read-only values
 
-[tests](testdata/src/testlintdata)
+[tests](testdata/src)
 
 #### go
 https://github.com/romshark/Go-1-2-Proposal---Immutability
@@ -37,6 +37,7 @@ To do so:
 1. Download [golangci-lint](https://github.com/golangci/golangci-lint) source code
 2. From the projects root directory, run `make build`
 3. Copy the `golangci-lint` executable that was created to your path, project, or other location
+
 
 ### Configure Your Project for Linting
 
@@ -100,3 +101,20 @@ go build -buildmode=plugin plugin/example.go
 This will create a plugin `*.so` file that can be copied into your project or another well known location for usage in `golangci-lint`.
 
 [^1]: Alternately, you can use the `-o /path/to/location/example.so` output flag to have it put it there for you.
+
+
+# Linter as Project
+
+## Implementation
+
+1. Mark variable as readonly by variable suffix/prefix, configuration or annotation/comment.
+2. Save all *ast.Assign, which see on the source variable.
+3. Check *ast.Assign on changes
+
+To identify variable We use *ast.Object. 
+
+## Tips
+
+1. https://astexplorer.net/ or https://yuroyoro.github.io/goast-viewer/ to see online ast tree
+2. to work with across package
+   4. https://stackoverflow.com/questions/32532335/usage-of-go-parser-across-packages
