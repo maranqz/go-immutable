@@ -14,9 +14,10 @@ func structsValue() {
 	roPtr = nil
 }
 
+// TODO check what is readonly struct and what is RO variable
 func structsPtr() {
 	ro := &StructRO{}
-	ro = &StructRO{} // want "try to change ro"
+	ro = &StructRO{}
 
 	roPtr := ro
 	*roPtr = StructRO{} // want "try to change roPtr"

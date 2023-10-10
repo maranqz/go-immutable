@@ -26,6 +26,7 @@ var analyse = globalAnalyse{
 
 func run(pass *analysis.Pass) (interface{}, error) {
 	// TODO do concurrency processing
+	// set sequential = true in golang.org/x/tools/go/analysis/internal/checker/checker.go#L666-L666)
 	fmt.Println(pass.Pkg.Path())
 
 	for _, file := range pass.Files {
@@ -72,11 +73,7 @@ func (o *object) isRootVar() bool {
 		return false
 	}
 
-	if o.rootVar == nil {
-		return true
-	}
-
-	return false
+	return o.rootVar == nil
 }
 
 func (o *object) isPtr() bool {
@@ -95,10 +92,6 @@ func isStruct(obj types.Object) bool {
 	_, is := obj.(*types.TypeName)
 
 	return is
-}
-
-func isSamePackage(o1, o2 types.Object) bool {
-	return o1.Pkg() == o2.Pkg()
 }
 
 func (v *visiter) ObjUnarExported(ident *ast.Ident) *object {
@@ -214,6 +207,9 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 		if ok {
 			// TODO use ident to differ ident.pkg from struct or variable from different package
 			if ident, structNamed, ok := v.getStructNamed(selectorExpr); ok {
+				lObj := v.pass.TypesInfo.ObjectOf(ident)
+				_ = lObj
+
 				obj := structNamed.Obj()
 				if v.isReadOnly(obj) {
 					ro := v.getReadOnly(obj)
@@ -319,7 +315,6 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 		if v.isReadOnly(lObj) {
 			ro := v.getReadOnly(lObj)
 			if !ro.isPtr() ||
-				ro.isPtr() && ro.isRootVar() ||
 				ro.isPtr() && isPtrLeft {
 				v.tryMutate = append(v.tryMutate, v.Obj(lIdent, ro.ident))
 			}
@@ -342,12 +337,12 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 		isPtrRight = true
 	}
 
-	if selectorExpr, ok := rFirst.(*ast.SelectorExpr); ok {
-		rFirst = selectorExpr.Sel
-	}
-
 	if compositeList, ok := rFirst.(*ast.CompositeLit); ok {
 		rFirst = compositeList.Type
+	}
+
+	if selectorExpr, ok := rFirst.(*ast.SelectorExpr); ok {
+		rFirst = selectorExpr.Sel
 	}
 
 	if rIdent, ok := rFirst.(*ast.Ident); ok {
@@ -390,11 +385,7 @@ func (v *visiter) isReadOnly(o types.Object) bool {
 		return true
 	}
 
-	if !isSamePackage(ro.obj, o) {
-		return true
-	}
-
-	return false
+	return o.Pkg() != v.pass.Pkg
 }
 
 func (v *visiter) getReadOnly(o types.Object) *object {

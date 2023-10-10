@@ -15,8 +15,9 @@ func globalExportedVariable() {
 
 func globalExported() {
 	ro := common.StructRO{}
-	ro.Value++ // want "try to change ro"
-	*ro.Ptr++  // want "try to change ro"
+	ro.Value++             // want "try to change ro"
+	*ro.Ptr++              // want "try to change ro"
+	ro = common.StructRO{} // want "try to change ro"
 
 	roPtr := &common.StructRO{}
 	roPtr.Value++ // want "try to change roPtr"

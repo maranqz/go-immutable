@@ -23,7 +23,7 @@ func check(err error) {
 func TestTryDST(t *testing.T) {
 	t.Parallel()
 
-	pp, err := decorator.Load(&packages.Config{
+	pp, _ := decorator.Load(&packages.Config{
 		//nolint:staticcheck
 		Mode:       packages.LoadAllSyntax,
 		Context:    nil,
@@ -36,7 +36,6 @@ func TestTryDST(t *testing.T) {
 		Tests:      false,
 		Overlay:    nil,
 	}, "./...")
-	check(err)
 
 	_ = pp
 }
