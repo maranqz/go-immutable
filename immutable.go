@@ -97,6 +97,10 @@ func isStruct(obj types.Object) bool {
 	return is
 }
 
+func isSamePackage(o1, o2 types.Object) bool {
+	return o1.Pkg() == o2.Pkg()
+}
+
 func (v *visiter) ObjUnarExported(ident *ast.Ident) *object {
 	return v.objUnar(ident, true)
 }
@@ -184,6 +188,8 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 		}
 	}
 
+	pkg := v.pass.Pkg.Path()
+	_ = pkg
 	_ = line
 
 	// Mark structs
@@ -206,6 +212,7 @@ func (v *visiter) Visit(node ast.Node) ast.Visitor {
 		// struct.SomeField
 		selectorExpr, ok := expr.(*ast.SelectorExpr)
 		if ok {
+			// TODO use ident to differ ident.pkg from struct or variable from different package
 			if ident, structNamed, ok := v.getStructNamed(selectorExpr); ok {
 				obj := structNamed.Obj()
 				if v.isReadOnly(obj) {
@@ -373,9 +380,21 @@ func (v *visiter) getStructNamed(selectorExpr *ast.SelectorExpr) (
 }
 
 func (v *visiter) isReadOnly(o types.Object) bool {
-	_, ok := v.readonlyObjects[o]
+	ro, ok := v.readonlyObjects[o]
 
-	return ok
+	if !ok {
+		return false
+	}
+
+	if !ro.isForExported {
+		return true
+	}
+
+	if !isSamePackage(ro.obj, o) {
+		return true
+	}
+
+	return false
 }
 
 func (v *visiter) getReadOnly(o types.Object) *object {
