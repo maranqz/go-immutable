@@ -46,8 +46,17 @@ func TestLinterSuite(t *testing.T) {
 	tests := map[string]struct {
 		pkgs []string
 	}{
-		"scalar":               {pkgs: []string{"scalar"}},
-		"global":               {pkgs: []string{"global"}},
+		"scalar": {pkgs: []string{"scalar"}},
+
+		//	sequential := true
+		//
+		//	if len(actions) == 5 {
+		//	actions = append([]*action{
+		//	actions[4],
+		//}, actions[0:4]...)
+		//}
+
+		"global":               {pkgs: []string{"global/..."}},
 		"structs_local":        {pkgs: []string{"structs/local"}},
 		"struct_only_exported": {pkgs: []string{"structs/only_exported/..."}},
 		"struct_global":        {pkgs: []string{"structs/global/..."}},

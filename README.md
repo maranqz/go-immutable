@@ -113,6 +113,12 @@ This will create a plugin `*.so` file that can be copied into your project or an
 
 To identify variable We use *ast.Object. 
 
+### [Unused](https://github.com/dominikh/go-tools/tree/master/unused) as base
+
+Need to:
+1. Place where was used
+2. Show usage of only modified objects ([issue](https://github.com/dominikh/go-tools/issues/1453))
+
 ## Tips
 
 1. https://astexplorer.net/ or https://yuroyoro.github.io/goast-viewer/ to see online ast tree
